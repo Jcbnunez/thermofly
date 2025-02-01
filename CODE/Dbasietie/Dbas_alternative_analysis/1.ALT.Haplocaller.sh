@@ -6,7 +6,7 @@
 #SBATCH -t 20:00:00   
 #SBATCH --mem 20G   
 #SBATCH -o ./slurmOutput/%x.%A_%a.out  
-#SBATCH -p bluemoon  
+#SBATCH -p general  
 #SBATCH --array=1-15,17-18,21
 
 #--- Notes ---------------------------------------------------------------------
@@ -15,20 +15,19 @@
 #### Alternative filtering analyses
 
 #### Load Modules
-module load singularity
-gatk=/netfiles/nunezlab/Shared_Resources/Software/gatk_latest.sif
-
-picard=/netfiles/nunezlab/Shared_Resources/Software/picard/build/libs/picard.jar
-tabix=/netfiles/nunezlab/Shared_Resources/Software/htslib/tabix
-bgzip=/netfiles/nunezlab/Shared_Resources/Software/htslib/bgzip
+#gatk=/netfiles/nunezlab/Shared_Resources/Software/gatk_latest.sif
+module load gatk/4.6.1.0
+module load gcc/13.3.0-xp3epyt picard/3.1.1-otrgwkh
+tabix=/netfiles/nunezlab/Shared_Resources/Software/htslib-1.21/tabix
+bgzip=/netfiles/nunezlab/Shared_Resources/Software/htslib-1.21/bgzip
 
 #### Locations
-BAMS_FOLDER=/netfiles/thermofly/bams_clean/
+BAMS_FOLDER=/netfiles/thermofly/bams_clean_DPrice_Dbas_Jan2025
 WORKING_FOLDER=/users/j/c/jcnunez/scratch/thermofly/basisetae/mapping
-REFERENCE=/netfiles/thermofly/GENOMES/basisetae/D.basisetae_nanopore.fasta.masked.fa
+REFERENCE=/netfiles/thermofly/GENOMES/basisetae/GCA_035041595.1_ASM3504159v1_genomic.fna.masked.fa
 
 #### Metadata
-meta=/netfiles/thermofly/METADATA/Thermofly_metadata.tsv
+meta=/netfiles/thermofly/METADATA/Thermofly_metadata.vNov11.2024.tsv
 SUFFIX=srt.rmdp
 
 #### Java info
@@ -55,7 +54,7 @@ echo ${i}
 
 mkdir $WORKING_FOLDER/RGSM_final_bams
 
-java -jar $picard AddOrReplaceReadGroups \
+picard AddOrReplaceReadGroups \
   I=$BAMS_FOLDER/${i}.$SUFFIX.bam \
   O=$WORKING_FOLDER/RGSM_final_bams/${i}.RG.bam \
   RGLB=$Group_library \
@@ -69,7 +68,7 @@ java -jar $picard AddOrReplaceReadGroups \
 ###########################################################################
 ###########################################################################
 
-java -jar $picard BuildBamIndex \
+picard BuildBamIndex \
       I=$WORKING_FOLDER/RGSM_final_bams/${i}.RG.bam \
       O=$WORKING_FOLDER/RGSM_final_bams/${i}.RG.bai
 
@@ -86,12 +85,7 @@ mkdir $WORKING_FOLDER/haplotype_calling
 #      R=$REFERENCE \
 #      O=/netfiles/thermofly/GENOMES/basisetae/D.basisetae_nanopore.fasta.masked.dict
 
-SINGULARITYENV_i=${i} \
-SINGULARITYENV_REFERENCE=${REFERENCE} \
-SINGULARITYENV_WORKING_FOLDER=${WORKING_FOLDER} \
-SINGULARITYENV_JAVAMEM=${JAVAMEM} \
-SINGULARITYENV_HET=${HET} \
-singularity exec -H ${WORKING_FOLDER} ${gatk} \
+$GATK \
 gatk --java-options "-Xmx${JAVAMEM} -Xms${JAVAMEM}" \
 HaplotypeCaller \
   -R $REFERENCE \
@@ -106,8 +100,6 @@ HaplotypeCaller \
 # Compress and index with Tabix
 ###########################################################################
 ###########################################################################
-
-mkdir 
 
 $bgzip $WORKING_FOLDER/haplotype_calling/${i}.raw.g.vcf
 $tabix $WORKING_FOLDER/haplotype_calling/${i}.raw.g.vcf.gz

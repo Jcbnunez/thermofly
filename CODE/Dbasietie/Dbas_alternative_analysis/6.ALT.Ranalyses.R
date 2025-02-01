@@ -15,7 +15,7 @@ require(foreach)
 #library(BEDASSLE)
 
 #####
-samps <- fread("/netfiles/thermofly/METADATA/Thermofly_metadata.tsv")
+samps <- fread("/netfiles/thermofly/METADATA/Thermofly_metadata.vNov11.2024.tsv")
 
 #####
 genofile <- seqOpen("/gpfs2/scratch/jcnunez/thermofly/basisetae/mapping/D.basisetae.GATK.pipe.gds", allow.duplicate=T)
@@ -38,7 +38,7 @@ seqSetFilter(genofile,
 snps.dt.biallelic_lowmiss[,global_af:=seqGetData(genofile, "annotation/info/AF")$data]
 
 snps.dt.biallelic_lowmiss %>%
-  filter(global_af > 0.05) ->
+  filter(global_af >= 0) ->
   snps.dt.biallelic_lowmiss.common
 
 seqSetFilter(genofile, 
@@ -50,17 +50,17 @@ ad <- seqGetData(genofile, "annotation/format/AD")
 col.min <- apply(dp, MARGIN = 2, FUN = min)
 snps.dt.biallelic_lowmiss.common %>%
   mutate(min_cov = col.min) %>%
-  filter(min_cov >= 6) ->
-  snps.dt.biallelic_lowmiss.common.6X
+  filter(min_cov >= 4) ->
+  snps.dt.biallelic_lowmiss.common.4X
 
 #20,649 SNPs
 seqResetFilter(genofile)
 seqSetFilter(genofile, 
-             variant.id=snps.dt.biallelic_lowmiss.common.6X$variant.id)
+             variant.id=snps.dt.biallelic_lowmiss.common.4X$variant.id)
 
 
 snpgdsGetGeno(genofile, 
-              snp.id=snps.dt.biallelic_lowmiss.common.6X$variant.id, 
+              snp.id=snps.dt.biallelic_lowmiss.common.4X$variant.id, 
               verbose=TRUE, with.id=TRUE) ->
   GENO.matrix
 
@@ -68,10 +68,16 @@ MATRIX <- GENO.matrix$genotype
 colnames(MATRIX)  <- GENO.matrix$snp.id
 rownames(MATRIX)  <- GENO.matrix$sample.id
 
+###
+seqGDS2VCF(genofile, "gdsfltr.vcf", 
+           info.var=NULL, fmt.var=NULL, chr_prefix="",
+           use_Rsamtools=TRUE, verbose=TRUE)
+
+###
 samps.DBAS <- samps %>% filter(sampleId %in% GENO.matrix$sample.id)
 
 v <- snpgdsFst(genofile, 
-               snp.id=snps.dt.biallelic_lowmiss.common.6X$variant.id,
+               snp.id=snps.dt.biallelic_lowmiss.common.4X$variant.id,
                sample.id=samps.DBAS$sampleId, 
                population=as.factor(samps.DBAS$locale),
                autosome.only=FALSE,
@@ -81,30 +87,47 @@ v$MeanFst
 #0.001883866
 
 ### RELATEDNESS
-ibd.TOMS <- snpgdsIBDMoM(genofile, 
-                    sample.id=filter(samps.DBAS, locale == "US-HI-Tom")$sampleId, 
-                    snp.id=snps.dt.biallelic_lowmiss.common.6X$variant.id,
-                    maf=0.05, missing.rate=0.05, num.thread=2,  autosome.only=FALSE)
-ibd.coeff.TOMS <- snpgdsIBDSelection(ibd.TOMS)
-
-ibd.Ola <- snpgdsIBDMoM(genofile, 
-                         sample.id=filter(samps.DBAS, locale == "US-HI-Ola")$sampleId, 
-                         snp.id=snps.dt.biallelic_lowmiss.common.6X$variant.id,
+ibd.all <- snpgdsIBDMoM(genofile, 
+                         sample.id=samps.DBAS$sampleId, 
+                         snp.id=snps.dt.biallelic_lowmiss.common.4X$variant.id,
                          maf=0.05, missing.rate=0.05, num.thread=2,  autosome.only=FALSE)
-ibd.coeff.OLA <- snpgdsIBDSelection(ibd.Ola)
+ibd.coeff.all <- snpgdsIBDSelection(ibd.all)
+ibd.robust <- snpgdsIBDKING(genofile, 
+                            sample.id=samps.DBAS$sampleId, 
+                            snp.id=snps.dt.biallelic_lowmiss.common.4X$variant.id,
+                            maf=0.05, missing.rate=0.05, num.thread=2,  autosome.only=FALSE)
+ibd.robust.coeff <- snpgdsIBDSelection(ibd.robust)
 
-rbind(mutate(ibd.coeff.TOMS, pop = "Toms" ), 
-      mutate(ibd.coeff.OLA, pop = "Olaa")) ->
-  kin.analysis
+data.frame(sampleId = ibd.robust.coeff$ID1) %>%
+  left_join(samps[,c("sampleId","locale")]) %>%
+  select(local1 = "locale") -> Loc1
 
-kin.analysis %>%
-  group_by(pop) %>%
-  summarise(m.kinship = mean(kinship))
+data.frame(sampleId = ibd.robust.coeff$ID2) %>%
+  left_join(samps[,c("sampleId","locale")]) %>%
+  select(local2 = "locale") -> Loc2
 
-#pop     m.kim
-#<chr>   <dbl>
-#  1 Olaa  0.00342
-#  2 Toms  0.00783
+cbind(ibd.robust.coeff, Loc1, Loc2 ) %>%
+  as.data.frame() %>%
+  mutate(pop_comp = paste(local1, local2, sep = "_")) ->
+  ibd.robust.coeff.meta 
+
+ibd.robust.coeff.meta %>%
+  ggplot(aes(
+    x=IBS0,
+    y=kinship
+  )) + geom_point() +
+  facet_wrap(~pop_comp) +
+  geom_hline(yintercept = 0.0884) +
+  geom_hline(yintercept = 0.0442) -> KingCoeff
+
+ggsave(KingCoeff, file = "KingCoeff.pdf", 
+       w = 6, h =3)
+
+ibd.robust.coeff.meta %>%
+  group_by(pop_comp) %>%
+  summarise(kingship = mean(kinship))
+###
+
 
 #####
 MATRIX %>% 
@@ -113,6 +136,7 @@ MATRIX %>%
 save(pca.object, file = "Dbas.pca.object.Rdata")
 ####
 load("Dbas.pca.object.Rdata")
+pca.object$eig
 
 pca.object$ind$coord %>%
   as.data.frame() %>% 
@@ -152,7 +176,7 @@ permutations(n = length(TOM_SAMPS), r = 2, v = TOM_SAMPS) %>%
   TOM_PERMS
 
 OLA.D =
-foreach(i=1:dim(OLA_PERMS)[1], 
+foreach(i=1:length(OLA_SAMPS), 
         .combine = "rbind")%do%{
 
           i1 = pca.meta.dim %>% filter(sampleId == OLA_PERMS$V1[i])
@@ -171,7 +195,7 @@ foreach(i=1:dim(OLA_PERMS)[1],
 }
 
 TOM.D =
-  foreach(i=1:dim(TOM_PERMS)[1], 
+  foreach(i=1:length(TOM_SAMPS), 
           .combine = "rbind")%do%{
             
             i1 = pca.meta.dim %>% filter(sampleId == TOM_PERMS$V1[i])
@@ -257,10 +281,23 @@ left_join(
 dapc_opt$var.contr %>%
   as.data.frame() %>%
   mutate(variant.id =  as.integer(rownames(.))) %>%
-  left_join(snps.dt.biallelic_lowmiss.common.6X) ->
+  left_join(snps.dt.biallelic_lowmiss.common.4X) ->
   var.contrib.snp6x
   
 var.contrib.snp6x %>%
   arrange(-LD1) %>% head(100)
 
+##########
+##########
+##########
+##########
+########## PCA adapt
+#module load gcc/13.3.0-xp3epyt htslib/1.19.1-6ivqauw
+#bgzip gdsfltr.vcf
+#tabix gdsfltr.vcf.gz
+
+#library(pcadapt)
+#path_to_file <- "/gpfs2/scratch/jcnunez/thermofly/basisetae/mapping/gdsfltr.vcf.gz"
+#filename <- read.pcadapt(path_to_file, type = "vcf")
+#x <- pcadapt(input = filename, K = 18) 
 

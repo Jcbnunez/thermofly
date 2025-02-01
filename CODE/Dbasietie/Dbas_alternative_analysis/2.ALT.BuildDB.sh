@@ -6,8 +6,8 @@
 #SBATCH -t 20:00:00   
 #SBATCH --mem 160G   
 #SBATCH -o ./slurmOutput/%x.%A_%a.out  
-#SBATCH -p bluemoon  
-#SBATCH --array=1-8
+#SBATCH -p general  
+#SBATCH --array=2-175
 
 ###########################################################################
 #Parameters
@@ -19,16 +19,15 @@ echo "using #CPUs ==" $SLURM_CPUS_ON_NODE
 
 #Load Modules
 #gatk=/netfiles/nunezlab/Shared_Resources/Software/gatk-4.6.0.0/gatk
-module load singularity
-gatk=/netfiles/nunezlab/Shared_Resources/Software/gatk_latest.sif
+module load gatk/4.6.1.0
 
 WORKING_FOLDER=/users/j/c/jcnunez/scratch/thermofly/basisetae/mapping
 
 # User defined inputs -- this represents the name of the samples
-intervals=Dbas.Intervals.txt
-sample_map=Dbas.samps_to_hap.txt
-DB_location=db_Drosophila_basisetae
-mkdir $WORKING_FOLDER/$DB_location
+intervals=/gpfs2/scratch/jcnunez/thermofly/basisetae/Dbas.Intervals.txt
+sample_map=/gpfs2/scratch/jcnunez/thermofly/basisetae/Dbas.samps_to_hap.txt
+DB_location=/gpfs2/scratch/jcnunez/thermofly/basisetae/mapping/db_Drosophila_basisetae
+mkdir $DB_location
 
 #This file looks like this
 #  sample1      sample1.vcf.gz
@@ -53,6 +52,7 @@ mkdir $WORKING_FOLDER/TEMP_MERGEVCF_${i}
 # awk '{ if(/^>/){ print NR==1 ? $0"\r" : "\r\n"$0"\r"}else{ printf "%s",$0}} END{print "\r"}' D.basisetae_nanopore.fasta.masked
 
 
+
 ###########################################################################
 ###########################################################################
 # Merge VCFs using GenomicsDBImport
@@ -60,19 +60,13 @@ mkdir $WORKING_FOLDER/TEMP_MERGEVCF_${i}
 ###########################################################################
 
 ### UPDATE TO GATK4
-SINGULARITYENV_i=${i} \
-SINGULARITYENV_WORKING_FOLDER=${WORKING_FOLDER} \
-SINGULARITYENV_JAVAMEM=${JAVAMEM} \
-SINGULARITYENV_DB_location=${DB_location} \
-SINGULARITYENV_sample_map=${sample_map} \
-SINGULARITYENV_CPU=${CPU} \
-singularity exec -H ${WORKING_FOLDER} ${gatk} \
+$GATK \
 gatk --java-options "-Xmx${JAVAMEM} -Xms${JAVAMEM}" \
         GenomicsDBImport \
        --genomicsdb-workspace-path $DB_location/DB_${i} \
        --batch-size 50 \
        --sample-name-map $sample_map \
-       --tmp-dir TEMP_MERGEVCF_${i} \
+       --tmp-dir $WORKING_FOLDER/TEMP_MERGEVCF_${i} \
        --reader-threads $CPU \
        -L ${i}
 
