@@ -18,7 +18,7 @@ require(foreach)
 samps <- fread("/netfiles/thermofly/METADATA/Thermofly_metadata.vNov11.2024.tsv")
 
 #####
-genofile <- seqOpen("/gpfs2/scratch/jcnunez/thermofly/basisetae/mapping/D.basisetae.GATK.pipe.gds", allow.duplicate=T)
+genofile <- seqOpen("/netfiles/thermofly/ANALYSES/Dbas_paper/D.basisetae.GATK.pipe.gds", allow.duplicate=T)
 seqResetFilter(genofile)
 
 #### Load the filtering SNP object -- which JCBN created
