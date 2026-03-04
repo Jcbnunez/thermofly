@@ -1,2 +1,2 @@
 # thermofly
-TBD
+Repository for Thermofly projects
